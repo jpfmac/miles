@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Travel Tracker Pro</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; background: #0f172a; color: white; padding: 20px; box-sizing: border-box; }
+        .card { background: #1e293b; padding: 2rem; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 100%; max-width: 380px; border: 1px solid #334155; margin-bottom: 20px; }
+        
+        .speed-circle { width: 130px; height: 130px; border: 8px solid #38bdf8; border-radius: 50%; margin: 0 auto 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 0 20px rgba(56, 189, 248, 0.2); }
+        .speed-val { font-size: 3rem; font-weight: 900; line-height: 1; color: #38bdf8; }
+        .speed-unit { font-size: 0.7rem; color: #94a3b8; font-weight: bold; }
+
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin-bottom: 1rem; }
+        .stat-box { background: #0f172a; padding: 0.8rem; border-radius: 12px; }
+        .label { font-size: 0.6rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .val { font-size: 1.1rem; font-weight: bold; font-family: monospace; }
+
+        button { width: 100%; padding: 1.2rem; border: none; border-radius: 16px; font-size: 1.1rem; font-weight: 800; cursor: pointer; transition: 0.3s; }
+        .start { background: #22c55e; color: #052e16; }
+        .stop { background: #ef4444; color: white; }
+
+        /* Summary Styling */
+        #historyCard { background: #334155; border: 1px dashed #64748b; display: none; }
+        .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; margin-top: 10px; }
+        .summary-item { font-size: 0.85rem; color: #e2e8f0; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="speed-circle">
+        <div id="speed" class="speed-val">0</div>
+        <div class="speed-unit">MPH</div>
+    </div>
+
+    <div class="grid">
+        <div class="stat-box">
+            <div class="label">Time</div>
+            <div id="time" class="val">00:00:00</div>
+        </div>
+        <div class="stat-box">
+            <div class="label">Distance</div>
+            <div id="dist" class="val">0.00 mi</div>
+        </div>
+        <div class="stat-box" style="grid-column: span 2;">
+            <div class="label">Max Speed</div>
+            <div id="maxSpeed" class="val" style="color: #facc15;">0 MPH</div>
+        </div>
+    </div>
+
+    <button id="mainBtn" class="start" onclick="toggle()">START TRIP</button>
+</div>
+
+<div id="historyCard" class="card">
+    <div class="label" style="color: #38bdf8; font-weight: bold;">PREVIOUS TRIP SUMMARY</div>
+    <div class="summary-grid">
+        <div class="summary-item">🏁 Distance: <span id="lastDist" style="font-weight: bold;">--</span></div>
+        <div class="summary-item">⏱️ Duration: <span id="lastTime" style="font-weight: bold;">--</span></div>
+        <div class="summary-item">🚀 Top Speed: <span id="lastMax" style="font-weight: bold;">--</span></div>
+        <div class="summary-item">📅 Date: <span id="lastDate" style="font-weight: bold;">--</span></div>
+    </div>
+</div>
+
+<script>
+    let active = false;
+    let watchId, timer, startT;
+    let miles = 0, maxS = 0, lastPos = null;
+
+    function toggle() {
+        const btn = document.getElementById('mainBtn');
+        const history = document.getElementById('historyCard');
+        
+        if (!active) {
+            // Start Tracking
+            active = true;
+            btn.innerText = "STOP & SAVE";
+            btn.className = "stop";
+            history.style.display = "none"; // Hide history while driving
+            
+            miles = 0; maxS = 0; lastPos = null; startT = Date.now();
+            document.getElementById('maxSpeed').innerText = "0 MPH";
+            document.getElementById('dist').innerText = "0.00 mi";
+            
+            timer = setInterval(updateUI, 1000);
+            if ("geolocation" in navigator) {
+                watchId = navigator.geolocation.watchPosition(handleGPS, null, { enableHighAccuracy: true });
+            }
+        } else {
+            // Stop Tracking
+            active = false;
+            saveSummary(); // Save data to the history card
+            
+            clearInterval(timer);
+            navigator.geolocation.clearWatch(watchId);
+            
+            btn.innerText = "START NEW TRIP";
+            btn.className = "start";
+            document.getElementById('speed').innerText = "0";
+        }
+    }
+
+    function saveSummary() {
+        document.getElementById('historyCard').style.display = "block";
+        document.getElementById('lastDist').innerText = miles.toFixed(2) + " mi";
+        document.getElementById('lastTime').innerText = document.getElementById('time').innerText;
+        document.getElementById('lastMax').innerText = maxS + " MPH";
+        document.getElementById('lastDate').innerText = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    }
+
+    function handleGPS(pos) {
+        let rawSpeed = pos.coords.speed;
+        let currentMPH = (rawSpeed && rawSpeed > 0) ? Math.round(rawSpeed * 2.23694) : 0;
+        document.getElementById('speed').innerText = currentMPH;
+
+        if (currentMPH > maxS) {
+            maxS = currentMPH;
+            document.getElementById('maxSpeed').innerText = `${maxS} MPH`;
+        }
+
+        const current = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        if (lastPos) {
+            miles += calcDist(lastPos.lat, lastPos.lon, current.lat, current.lon);
+            document.getElementById('dist').innerText = `${miles.toFixed(2)} mi`;
+        }
+        lastPos = current;
+    }
+
+    function updateUI() {
+        const diff = Date.now() - startT;
+        const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
+        const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
+        const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+        document.getElementById('time').innerText = `${h}:${m}:${s}`;
+    }
+
+    function calcDist(lat1, lon1, lat2, lon2) {
+        const R = 3958.8;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    }
+</script>
+</body>
+</html>
